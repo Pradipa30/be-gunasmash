@@ -1,0 +1,65 @@
+type SortDir = 'asc' | 'desc';
+
+export type ListQuery = {
+  page?: string;
+  limit?: string;
+  search?: string;
+  sort?: string;
+  filter?: string;
+};
+
+function pickFirst(v: unknown): string | undefined {
+  if (typeof v === 'string') return v;
+  if (Array.isArray(v)) return v[0]?.toString();
+  if (v == null) return undefined;
+  return String(v);
+}
+
+export function parseListQuery(q: any) {
+  const pageStr = pickFirst(q?.page) ?? '1';
+  const limitStr = pickFirst(q?.limit) ?? '10';
+  const searchStr = pickFirst(q?.search) ?? '';
+  const sortStr = pickFirst(q?.sort) ?? pickFirst(q?.orderBy);
+  const filterStr = pickFirst(q?.filter);
+
+  const page = Math.max(parseInt(pageStr, 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(limitStr, 10) || 10, 1), 100);
+  const skip = (page - 1) * limit;
+
+  const search = searchStr.trim();
+
+  let orderBy: Record<string, SortDir> | undefined;
+  if (sortStr) {
+    try {
+      const parsed = JSON.parse(sortStr);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const entries = Object.entries(parsed).filter(
+          ([field, direction]) =>
+            field.length > 0 && (direction === 'asc' || direction === 'desc'),
+        );
+        if (entries.length > 0) orderBy = Object.fromEntries(entries) as Record<string, SortDir>;
+      }
+    } catch {
+      const [field, dir] = sortStr.split(':');
+      const d: SortDir = dir === 'desc' ? 'desc' : 'asc';
+      if (field) orderBy = { [field]: d };
+    }
+  }
+
+  let where: Record<string, any> = {};
+  if (filterStr) {
+    try {
+      const obj = JSON.parse(filterStr);
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) where = obj;
+    } catch {
+      // Ignore malformed optional filters and use the default empty filter.
+    }
+  }
+
+  return { page, limit, skip, search, orderBy, where };
+}
+
+export function shapeList<T>(items: T[], total: number, page: number, limit: number) {
+  const pages = Math.ceil(total / limit);
+  return { items, meta: { total, page, limit, pages } };
+}
